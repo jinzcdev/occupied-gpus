@@ -3,6 +3,8 @@ The programming is used to occupy free video memories at the corresponding gpu_i
 
 $ python train.py --gpu-ids 0,1,2,3 --epochs 120 --options 0
 
+$ python -m occupiedgpus.core --gpu-ids 0,1,2,3 --epochs 120 --options 0
+
 '''
 import argparse
 import pynvml
@@ -131,5 +133,10 @@ def main():
         print(str(e))
 
 
+'''
 if __name__ == '__main__':
+    python -m occupiedgpus.core --gpu-ids 0,1,2,3 --epochs 120 --options 0
     main()
+'''
+
+main()

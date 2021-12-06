@@ -29,4 +29,6 @@ where `0,1,2,3` is the required format.
 
 ```shell
 nohup sh train.sh ${GPU_IDS} >> output.log 2>&1 &
+or
+nohup sh multi_train.sh ${GPU_IDS} >> output.log 2>&1 &
 ```
