@@ -1,4 +1,4 @@
-# Occupied GPU
+# [Occupied GPU](https://github.com/jinzcdev/occupied-gpu.git)
 
 The program used to occupy GPUs.
 
@@ -20,7 +20,7 @@ or
 
 ```shell
 chmod a+x ./train.sh
-train.sh 0,1,2,3
+./train.sh 0,1,2,3
 ```
 
 where `0,1,2,3` is the required format.

@@ -1,11 +1,10 @@
 r'''
 The programming is used to occupy free video memories at the corresponding gpu_id.
 
-$ python train.py --gpu-ids 0 1 2 3 --epochs 300 --options 1
+$ python train.py --gpu-ids 0,1,2,3 --epochs 120 --options 0
 
 '''
 import argparse
-import threading
 import pynvml
 import time
 
@@ -112,23 +111,25 @@ def allocate(gids, is_forced=False):
                 used, free = get_used_free_memory(gid)
                 # 向下取整, used==0 denotes 显存使用不足1GB.
                 if used != -1 and ((is_forced and free > 1) or (not is_forced and used == 0)):
-                    x = torch.randn((2 * (free-1), 512*(256-2**abs(i-num_gpus//2)), 16, 16))
+                    x = torch.randn(
+                        (2 * (free-1), 512*(256-2**abs(i-num_gpus//2)), 16, 16))
                     x = x.to(f'cuda:{gid}')
                     compute = Compute(thread_id=i, delay=3)
                     compute = compute.to(f'cuda:{gid}')
-                    ComputeThread(f'Thread-{i}-GPU{gid}', x, target=compute).start()
+                    ComputeThread(f'Thread-{i}-GPU{gid}',
+                                  x, target=compute).start()
                     is_allocated[gid] = True
                     cnt += 1
 
 
-def main(args):
-    gids = list(map(int, args.gpu_ids.split(',')))
-    allocate(gids, args.options != 0)
+def main():
+    args = init_args()
+    try:
+        gids = list(map(int, args.gpu_ids.split(',')))
+        allocate(gids, args.options != 0)
+    except Exception as e:
+        print(str(e))
 
 
 if __name__ == '__main__':
-    args = init_args()
-    try:
-        main(args)
-    except Exception as e:
-        print(str(e))
+    main()
