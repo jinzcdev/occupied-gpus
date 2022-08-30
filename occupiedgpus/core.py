@@ -1,9 +1,10 @@
 r'''
-The programming is used to occupy free video memories at the corresponding gpu_id.
+The programming is used to occupy free memory on the corresponding GPU.
 
-$ python train.py --gpu-ids 0,1,2,3 --epochs 120 --options 0
-
-$ python -m occupiedgpus.core --gpu-ids 0,1,2,3 --epochs 120 --options 0
+Usage:
+    $ python train.py --gpu-ids 0,1,2,3 --epochs 120 --options 0
+    or
+    $ python -m occupiedgpus.core --gpu-ids 0,1,2,3 --epochs 120 --options 0
 
 '''
 import argparse
@@ -19,16 +20,10 @@ pynvml.nvmlInit()
 
 
 class ComputeThread(Thread):
-    '''
-
-    分线程计算张量的主函数, 定时3秒钟计算一次
-
-    *name* is the thead name.
-
-    *target* is a callable object to be invoked by the `run()`.
-
-    *args* is the argument tuple for the target invocation.
-
+    r'''
+    `name`: the thead name.
+    `target`: a callable object to be invoked by the `run()`.
+    `args`: the argument tuple for the target invocation.
     '''
 
     def __init__(self, name, *args, target=None):
@@ -40,17 +35,16 @@ class ComputeThread(Thread):
     def run(self):
         print(f'starting {self.name}')
         try:
-            self.target(*self._args)  # 输入两个参数 (x, delay)
+            self.target(*self._args)  # two arguments: x, delay
         except RuntimeError as e:
             print(str(e))
 
 
 def get_used_free_memory(gpu_id: int):
-    '''
-    used与free的单位: 字节(B)
-    2^30 = 1073741824
+    r'''
+    `used` and `free` in bytes (B): 2^30 = 1073741824
 
-    return: 指定显卡的剩余显存容量, 单位GB
+    return: the remaining memory of the graphics card specified in GB
 
     '''
     if gpu_id < pynvml.nvmlDeviceGetCount():
@@ -62,8 +56,8 @@ def get_used_free_memory(gpu_id: int):
 
 
 def init_args():
-    '''
-    初始化输入参数, 假装输入一些训练参数, 如 epochs
+    r'''
+    Enter some fake training parameters such as epochs, gpu-id.
     '''
 
     parser = argparse.ArgumentParser(
@@ -111,7 +105,7 @@ def allocate(gids, is_forced=False):
         for i, gid in enumerate(gids):
             if not is_allocated.get(gid, False):
                 used, free = get_used_free_memory(gid)
-                # 向下取整, used==0 denotes 显存使用不足1GB.
+                # round down. used==0 denotes the remaining memory is less than 1 GB.
                 if used != -1 and ((is_forced and free > 1) or (not is_forced and used == 0)):
                     x = torch.randn(
                         (2 * (free-1), 512*(256-2**abs(i-num_gpus//2)), 16, 16))
@@ -131,12 +125,5 @@ def main():
         allocate(gids, args.options != 0)
     except Exception as e:
         print(str(e))
-
-
-'''
-if __name__ == '__main__':
-    python -m occupiedgpus.core --gpu-ids 0,1,2,3 --epochs 120 --options 0
-    main()
-'''
 
 main()
