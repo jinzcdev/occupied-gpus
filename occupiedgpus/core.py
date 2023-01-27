@@ -73,7 +73,7 @@ def init_args():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--lrf', type=float, default=0.01)
     parser.add_argument('--eval-interval', type=int, default=1)
-    parser.add_argument('--weights', type=str, default='./pre-trained/vit/jx_vit_base_patch16_224_in21k-e5005f0a.pth')
+    parser.add_argument('--weights', type=str, default='./runs/checkpoint.pth')
     parser.add_argument('--save-root', type=str, default='./runs')
 
     args = parser.parse_args()
@@ -81,8 +81,9 @@ def init_args():
 
 
 class Compute(nn.Module):
-    def __init__(self, thread_id, delay=3):
+    def __init__(self, gpu_id, thread_id, delay=3):
         super(Compute, self).__init__()
+        self.gpu_id = gpu_id
         self.thread_id = thread_id
         self.delay = delay
         self.op = nn.Sequential(
@@ -102,21 +103,24 @@ class Compute(nn.Module):
             self.compute_single(x)
             i += 1
             if i == 100:
-                print(f'Thread {self.thread_id} is running.')
+                print(f'GPU{self.gpu_id}-Thread{self.thread_id} is running.')
                 i = 0
 
 
 def allocate(gids, delta_bs, is_forced=False):
     num_gpus, cnt = len(gids), 0
-    is_allocated = {}
-    tid = 0
+    gpu_info = {gid: {"alloc": False, "tid": 0, "ci": 0} for gid in gids}
+    check_interval = 30 if is_forced else 0.2  # "0.2": less CPU consumption
+    response_interval = 30  # respond every 30 sec if the process is waiting
+
     while cnt != num_gpus:
         for gid in gids:
-            if not is_allocated.get(gid, False):
+            info = gpu_info[gid]
+            if not info["alloc"]:
                 used, free = get_used_free_memory(gid)
                 # round down. used==0 denotes the remaining memory is less than 1 GB.
                 if used != -1 and ((is_forced and free > 1) or (not is_forced and used == 0)):
-                    compute = Compute(thread_id=tid, delay=3).to(f'cuda:{gid}')
+                    compute = Compute(gpu_id=gid, thread_id=info["tid"], delay=3).to(f'cuda:{gid}')
                     bs = delta_bs
                     try:
                         while True:
@@ -127,13 +131,19 @@ def allocate(gids, delta_bs, is_forced=False):
                     except:
                         torch.cuda.empty_cache()
                         x = torch.zeros([max(bs - delta_bs, 2), 3, 224, 224], device=f'cuda:{gid}')
-                        ComputeThread(f'Thread{tid}-GPU{gid}', is_forced, x, target=compute).start()
-                        tid += 1
+                        ComputeThread(f'GPU{gid}-Thread{info["tid"]}', is_forced, x, target=compute).start()
+                        info["tid"] += 1
+
                     if not is_forced:
-                        is_allocated[gid] = True
+                        info["alloc"] = True
                         cnt += 1
-        if is_forced:
-            time.sleep(30)
+
+                info["ci"] += 1
+                if info["ci"] % (response_interval / check_interval) == 0:
+                    print(f"waiting GPU{gid}")
+
+        time.sleep(check_interval)
+
     print("all allocated")
 
 
