@@ -52,6 +52,14 @@ chmod u+x ./train.sh
 
 where `0,1,2,3` stands for the GPU0-3 to be occpied.
 
+To occupy GPUs faster with multiprocessing, run in bash ( not sh !!! ):
+
+```shell
+bash ./multi_train.sh 0,1,2,3
+```
+
+
+
 ## Run in the background
 
 if you want to run the code in the background, run:

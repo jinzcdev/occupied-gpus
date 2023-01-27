@@ -1,21 +1,19 @@
 r"""
-The programming is used to occupy free memory on the corresponding GPU.
+The programming is used to occupy free memory on the corresponding GPU with multiprocessing.
 
 Usage:
-    $ python train.py --gpu-ids 0,1,2,3 --option 0
-    or
-    $ python -m occupiedgpus.core --gpu-ids 0,1,2,3 --option 0
+    See "multi_train.sh"
 
 """
 import argparse
+import os
 import time
 from threading import Thread
 
 import pynvml
 import torch
 import torch.nn as nn
-
-pynvml.nvmlInit()
+from torch import distributed as dist
 
 
 class ComputeThread(Thread):
@@ -107,54 +105,57 @@ class Compute(nn.Module):
                 i = 0
 
 
-def allocate(gids, delta_bs, is_forced=False):
-    num_gpus, cnt = len(gids), 0
-    gpu_info = {gid: {"alloc": False, "tid": 0, "ci": 0} for gid in gids}
+def allocate(gid, delta_bs, is_forced=False):
+    assert torch.cuda.is_available(), "torch.cuda is unavailable!"
+    device = torch.device("cuda")
+    tid = 0
+    ci = 0
     check_interval = 30 if is_forced else 0.2  # "0.2": less CPU consumption
     response_interval = 30  # respond every 30 sec if the process is waiting
 
-    while cnt != num_gpus:
-        for gid in gids:
-            info = gpu_info[gid]
-            if not info["alloc"]:
-                used, free = get_used_free_memory(gid)
-                # round down. used==0 denotes the remaining memory is less than 1 GB.
-                if used != -1 and ((is_forced and free > 1) or (not is_forced and used == 0)):
-                    compute = Compute(gpu_id=gid, thread_id=info["tid"], delay=3).to(f'cuda:{gid}')
-                    bs = delta_bs
-                    try:
-                        while True:
-                            x = torch.zeros([bs, 3, 224, 224], device=f'cuda:{gid}')
-                            compute.compute_single(x)
-                            torch.cuda.empty_cache()
-                            bs += delta_bs
-                    except:
-                        torch.cuda.empty_cache()
-                        x = torch.zeros([max(bs - delta_bs, 2), 3, 224, 224], device=f'cuda:{gid}')
-                        ComputeThread(f'GPU{gid}-Thread{info["tid"]}', is_forced, x, target=compute).start()
-                        info["tid"] += 1
-
-                    if not is_forced:
-                        info["alloc"] = True
-                        cnt += 1
-
-                info["ci"] += 1
-                if info["ci"] % (response_interval / check_interval) == 0:
-                    print(f"waiting GPU{gid}")
+    while True:
+        used, free = get_used_free_memory(gid)
+        # round down. used==0 denotes the remaining memory is less than 1 GB.
+        if used != -1 and ((is_forced and free > 1) or (not is_forced and used == 0)):
+            compute = Compute(gpu_id=gid, thread_id=tid, delay=3).to(device)
+            bs = delta_bs
+            try:
+                while True:
+                    x = torch.zeros([bs, 3, 224, 224], device=device)
+                    compute.compute_single(x)
+                    torch.cuda.empty_cache()
+                    bs += delta_bs
+            except:
+                torch.cuda.empty_cache()
+                x = torch.zeros([max(bs - delta_bs, 2), 3, 224, 224], device=device)
+                ComputeThread(f'GPU{gid}-Thread{tid}', is_forced, x, target=compute).start()
+                tid += 1
+                if not is_forced:
+                    break
 
         time.sleep(check_interval)
+        ci += 1
+        if ci % (response_interval / check_interval) == 0:
+            print(f"waiting GPU{gid}")
 
-    print("all allocated")
+
+def init_distributed_mode(args):
+    args.local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(args.local_rank)
+    dist.init_process_group(backend="nccl", init_method="env://")
 
 
 def main():
+    pynvml.nvmlInit()
     args = init_args()
-    if args.gpu_ids in ["-1", "all", "a", ".", "..", "..."]:
-        gids = list(range(pynvml.nvmlDeviceGetCount()))
-    else:
-        gids = list(map(int, args.gpu_ids.split(',')))
-    print("GPU IDs:", *gids)
-    allocate(gids, args.batch_size, args.option != 0)
+    init_distributed_mode(args)
+
+    gids = list(map(int, args.gpu_ids.split(',')))
+
+    if args.local_rank == 0:
+        print("GPU IDs:", *gids)
+
+    allocate(gids[args.local_rank], args.batch_size, args.option != 0)
 
 
 main()
